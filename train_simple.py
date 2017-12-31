@@ -20,7 +20,7 @@ FLAGS = None
 
 class Agent(object):
     BATCH_SIZE = 1
-    HIDDEN_SIZE = 120
+    HIDDEN_SIZE = 200
 
     def __init__(self):
         self.env = gym.make('PuyoPuyoEndlessSmall-v0')
@@ -142,9 +142,12 @@ def main(*args, **kwargs):
             frames = []
             for j in range(FLAGS.num_steps):
                 action_dist, Q_base = sess.run([agent.action_dist, agent.output], feed_dict=agent.get_feed_dict(state))
-                action = np.random.choice(agent.n_outputs, p=action_dist[0])
-                if np.random.rand(1) < exploration:
+                action_dist *= agent.env.unwrapped.get_action_mask()
+                if np.random.rand(1) < exploration or not action_dist.any():
                     action = agent.env.action_space.sample()
+                else:
+                    action_dist /= action_dist.sum()
+                    action = np.random.choice(agent.n_outputs, p=action_dist[0])
                 new_state, reward, done, _ = agent.env.step(action)
                 Q = sess.run(agent.output, feed_dict=agent.get_feed_dict(new_state))  # noqa: N806
                 Q_target = Q_base  # noqa: N806
@@ -189,7 +192,7 @@ if __name__ == "__main__":
                         help='Number of episodes to run the trainer')
     parser.add_argument('--num_steps', type=int, default=1000,
                         help='Number of steps per episode')
-    parser.add_argument('--learning_rate', type=float, default=1e-3,
+    parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='Initial learning rate')
     parser.add_argument('--log_dir', type=str, default='/tmp/tensorflow/gym_puyopuyo/logs/rl_with_summaries',
                         help='Summaries log directory')
