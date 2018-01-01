@@ -7,6 +7,8 @@ import json
 import numpy as np
 import tensorflow as tf
 
+GAMMA = 0.95
+
 
 def weight_variable(shape, name, stddev=None):
     """
