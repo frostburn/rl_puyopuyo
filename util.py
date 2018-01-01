@@ -55,3 +55,37 @@ def vh_log(data, step):
     """Log data for valohai."""
     data["step"] = step
     print(json.dumps(data))
+
+
+def parse_record(env, lines):
+    """
+    Parses a seed + action record into a trainable sequence
+    """
+    lines = list(map(int, lines))
+    seed = lines[0]
+    actions = lines[1:]
+
+    env.seed(seed)
+    env.reset()
+    states = []
+    rewards = []
+    for action in actions:
+        # env.render()
+        state, reward, done, _ = env.step(action)
+        states.append(state)
+        rewards.append(reward)
+
+    values = []
+    value = 0
+    for reward in reversed(rewards):
+        value = reward + GAMMA * value
+        values.insert(0, value)
+
+    result = []
+    stuff = list(zip(states, actions, values))
+    if not done:
+        stuff = stuff[:-50]
+    for state, action, value in stuff:
+        action_one_hot = np.zeros(env.action_space.n)
+        action_one_hot[action] = 1
+        yield (state, action_one_hot, value)
