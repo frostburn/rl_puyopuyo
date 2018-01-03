@@ -29,8 +29,9 @@ class Agent(object):
         self.env = env
         self.make_graph()
         self.make_summaries()
-        self.writer = tf.summary.FileWriter(FLAGS.log_dir)
-        self.writer.add_graph(tf.get_default_graph())
+        if FLAGS:
+            self.writer = tf.summary.FileWriter(FLAGS.log_dir)
+            self.writer.add_graph(tf.get_default_graph())
 
     def make_graph(self):
         self.make_input_graph()
@@ -108,8 +109,9 @@ class Agent(object):
             self.loss = self.loss_xent + self.loss_mse + self.reg_term
 
     def make_train_graph(self):
+        learning_rate = FLAGS.learning_rate if FLAGS else 0
         with tf.name_scope("train"):
-            self.optimizer = tf.train.MomentumOptimizer(learning_rate=FLAGS.learning_rate, momentum=0.9, use_nesterov=True)
+            self.optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate, momentum=0.9, use_nesterov=True)
             self.train_step = self.optimizer.minimize(self.loss)
 
     def get_feed_dict(self, experiences):
@@ -133,6 +135,11 @@ class Agent(object):
             return np.random.choice(self.n_actions, p=action_dist)
         else:
             return np.random.randint(0, self.n_actions)
+
+    def get_policy_dist(self, states):
+        experiences = list((state, [0] * self.n_actions, 0) for state in states)
+        feed_dict = self.get_feed_dict(experiences)
+        return self.session.run(self.policy_actions, feed_dict=feed_dict)
 
     def render_in_place(self):
         self.env.render()
@@ -187,8 +194,9 @@ def main(*args, **kwargs):
             agent.load(FLAGS.params_dir)
         i = 0
         while True:
-            for n in [3, 4, 5, 6, 7, 8, 9]:
-                with open("records/mcts_exploration_{}.record".format(n)) as f:
+            path = "records/random"
+            for filename in os.listdir(path):
+                with open(os.path.join(path, filename)) as f:
                     temp_env = gym.make("PuyoPuyoEndlessSmall-v0")
                     g = parse_record(temp_env, f.readlines())
                 experiences = deque(maxlen=agent.BATCH_SIZE)
@@ -206,17 +214,21 @@ def main(*args, **kwargs):
                     pass
 
                 total_reward = 0
-                state = env.reset()
-                for j in range(1000):
-                    state, reward, done, _ = env.step(agent.get_policy_action(env, state))
-                    total_reward += reward
-                    # env.render()
-                    if done:
-                        break
+                for k in range(10):
+                    state = env.reset()
+                    for j in range(1000):
+                        state, reward, done, _ = env.step(agent.get_policy_action(env, state))
+                        total_reward += reward
+                        # env.render()
+                        if done:
+                            break
                 print(total_reward)
                 summarize_scalar(agent.writer, "policy_reward", total_reward, i)
             print("epoch done")
-            agent.dump()
+            try:
+                pass
+            finally:
+                agent.dump()
         agent.writer.close()
 
 

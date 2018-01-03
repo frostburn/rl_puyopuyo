@@ -6,25 +6,53 @@ import pickle
 import random
 import sys
 
+import tensorflow as tf
 import numpy as np
 import gym
 from gym_puyopuyo.env import register
 
 from util import GAMMA
+from train_deep import Agent
 
 EXPLORATION = 3
 PLAYOUT_LENGTH = 50
 
 
 class RandomAgent(object):
-    HISTORY_SIZE = 1
+    BATCH_SIZE = 3
 
-    def __init__(self, env):
+    def __init__(self, _, env):
         self.env = env
 
-    def get_action(self, frames):
-        return self.env.action_space.sample()
+    def get_actions(self, states):
+        result = []
+        for state in states:
+            dist = state.get_action_mask()
+            if dist.any():
+                dist /= dist.sum()
+                result.append(np.random.choice(self.env.action_space.n, p=dist))
+            else:
+                result.append(np.random.randint(0, self.env.action_space.n))
+        return result
 
+
+class AgentWrapper(Agent):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.load("/tmp/tensorflow/gym_puyopuyo/outputs/")
+
+    def get_actions(self, states):
+        frames = [state.encode() for state in states]
+        action_dist = self.get_policy_dist(frames)
+        result = []
+        for state, dist in zip(states, action_dist):
+            dist *= state.get_action_mask()
+            if dist.any():
+                dist /= dist.sum()
+                result.append(np.random.choice(self.n_actions, p=dist))
+            else:
+                result.append(np.random.randint(0, self.n_actions))
+        return result
 
 class Node(object):
     def __init__(self, state, reward=0, action=None):
@@ -70,37 +98,42 @@ class Node(object):
         return best_child.visits / self.visits
 
 
-def playout(agent, frames, state):
-    frames = None  # Fix plz
-    rewards = []
+def playout(agent, state):
+    states = [state.clone() for _ in range(agent.BATCH_SIZE)]
+    rewards = [[] for _ in range(agent.BATCH_SIZE)]
     for _ in range(PLAYOUT_LENGTH):
-        action = agent.get_action(frames)
-        reward = state.step(*state.actions[action])
-        if reward >= 0:
-            reward *= reward
-        rewards.append(reward)
-        if reward < 0:
-            break
+        actions = agent.get_actions(states)
+        for i in range(agent.BATCH_SIZE):
+            state = states[i]
+            rs = rewards[i]
+            if rs and rs[-1] < 0:
+                continue
+            action = actions[i]
+            reward = state.step(*state.actions[action])
+            if reward >= 0:
+                reward *= reward
+            rs.append(reward)
 
-    score = 0
-    for reward in reversed(rewards):
-        score = reward + GAMMA * score
-    return score
+    total_score = 0
+    for rs in rewards:
+        score = 0
+        for reward in reversed(rs):
+            score = reward + GAMMA * score
+        total_score += score
+    return score, agent.BATCH_SIZE
 
 
-def mc_iterate(agent, node, frames, exploration=EXPLORATION):
-    frames = deque(frames, maxlen=frames.maxlen)
+def mc_iterate(agent, node, exploration=EXPLORATION):
     path = [node]
     while node.children:
         node = node.choose(exploration)
         path.append(node)
-        # frames.append(node.state.encode())  # Fix plz
     node.expand()
-    score = playout(agent, frames, node.state.clone())
+    score, visits = playout(agent, node.state)
 
     for node in reversed(path):
-        node.visits += 1
         node.score += score
+        node.visits += visits
         score = node.reward + score * GAMMA
 
 
@@ -108,40 +141,40 @@ def mcts(agent_class):
     """
     Does a Monte Carlo tree search using an agent for rollout policy
     """
-    seed = random.randint(0, 1234567890)
-    env = gym.make("PuyoPuyoEndlessSmall-v0")
-    agent = agent_class(env)
-    env.seed(seed)
-    frame = env.reset()
-    frames = deque([frame] * agent.HISTORY_SIZE, maxlen=agent.HISTORY_SIZE)
-    root = Node(env.unwrapped.get_root())
+    with tf.Session() as session:
+    # if True:
+    #     session = None
+        seed = random.randint(0, 1234567890)
+        env = gym.make("PuyoPuyoEndlessSmall-v0")
+        agent = agent_class(session, env)
+        env.seed(seed)
+        env.reset()
+        root = Node(env.unwrapped.get_root())
 
-    exploration = int(sys.argv[1])
-    print("Exploration", exploration)
+        exploration = float(sys.argv[1])
+        print("Exploration", exploration)
 
-    with open("mcts_exploration_{}.record".format(exploration), "w") as f:
-        f.write(str(seed) + "\n")
-        while True:
-            for _ in range(700):
-                mc_iterate(agent, root, frames, exploration)
-            i = 0
-            while root.confidence < 0.2 and i < 5:
-                i += 1
-                print("Gaining more confidence... {} %".format(100 * root.confidence))
+        with open("mcts_exploration_{}.record".format(exploration), "w") as f:
+            f.write(str(seed) + "\n")
+            while True:
                 for _ in range(100):
-                    mc_iterate(agent, root, frames, exploration)
-            root.render()
-            action = root.choose(0).action
-            f.write(str(action) + "\n")
-            _, reward, done, _ = env.step(action)
-            print("Reward =", reward)
-            root = Node(env.unwrapped.get_root())
-
-            frame = root.state.encode()
-            frames.append(frame)
-            if done:
-                break
+                    mc_iterate(agent, root, exploration)
+                i = 0
+                while root.confidence < 0.2 and i < 5:
+                    i += 1
+                    print("Gaining more confidence... {} %".format(100 * root.confidence))
+                    for _ in range(30):
+                        mc_iterate(agent, root, exploration)
+                root.render()
+                action = root.choose(0).action
+                f.write(str(action) + "\n")
+                _, reward, done, _ = env.step(action)
+                print("Reward =", reward)
+                root = Node(env.unwrapped.get_root())
+                if done:
+                    break
 
 if __name__ == "__main__":
     register()
-    mcts(RandomAgent)
+    mcts(AgentWrapper)
+    # mcts(RandomAgent)
