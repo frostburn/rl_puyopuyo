@@ -1,0 +1,34 @@
+---
+
+- step:
+    name: Generate MCTS games
+    image: gcr.io/tensorflow/tensorflow:1.3.0-devel
+    command:
+      - pip install -r requirements.txt
+      - python mcts.py {parameters}
+    parameters:
+      - name: num_steps
+        pass-as: --num_steps={v}
+        description: Maximum number of steps to run
+        type: integer
+        default: 1000
+      - name: exploration
+        pass-as: --exploration={v}
+        description: Exploration rate
+        type: float
+        default: 200.0
+
+- step:
+    name: Worker environment check
+    image: gcr.io/tensorflow/tensorflow:1.3.0-devel-gpu
+    command:
+      - pwd
+      - ls -la
+      - nvidia-smi
+      - python --version
+
+- step:
+    name: Dependencies check
+    image: gcr.io/tensorflow/tensorflow:1.3.0-devel-gpu
+    command:
+      - pip freeze

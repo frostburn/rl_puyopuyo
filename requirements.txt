@@ -1,0 +1,4 @@
+numpy
+tensorflow
+gym
+-e git+https://github.com/frostburn/gym_puyopuyo.git@v0.1.0#egg=gym_puyopuyo

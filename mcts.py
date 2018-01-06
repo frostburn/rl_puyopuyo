@@ -1,21 +1,25 @@
 from __future__ import division
 
+import argparse
 from collections import deque
 import json
 import pickle
 import random
 import sys
+import os
 
 import tensorflow as tf
 import numpy as np
 import gym
 from gym_puyopuyo.env import register
 
-from util import GAMMA
+from util import GAMMA, vh_log, get_or_create_outputs_dir
 from train_deep import Agent
 
 EXPLORATION = 3
 PLAYOUT_LENGTH = 50
+
+FLAGS = None
 
 
 class RandomAgent(object):
@@ -95,6 +99,8 @@ class Node(object):
     @property
     def confidence(self):
         best_child = self.choose(0)
+        if best_child is None:
+            return 0
         return best_child.visits / self.visits
 
 
@@ -110,8 +116,6 @@ def playout(agent, state):
                 continue
             action = actions[i]
             reward = state.step(*state.actions[action])
-            if reward >= 0:
-                reward *= reward
             rs.append(reward)
 
     total_score = 0
@@ -141,40 +145,53 @@ def mcts(agent_class):
     """
     Does a Monte Carlo tree search using an agent for rollout policy
     """
-    with tf.Session() as session:
-    # if True:
-    #     session = None
+    # with tf.Session() as session:
+    if True:
+        session = None
         seed = random.randint(0, 1234567890)
-        env = gym.make("PuyoPuyoEndlessSmall-v0")
+        env = gym.make("PuyoPuyoEndlessTsu-v0")
         agent = agent_class(session, env)
         env.seed(seed)
         env.reset()
         root = Node(env.unwrapped.get_root())
 
-        exploration = float(sys.argv[1])
-        print("Exploration", exploration)
+        exploration = FLAGS.exploration
+        print("Exploration =", exploration)
 
-        with open("mcts_exploration_{}.record".format(exploration), "w") as f:
+        outputs_dir = get_or_create_outputs_dir()
+        with open(os.path.join(outputs_dir, "mcts_tsu_exploration_{}.record".format(exploration)), "w") as f:
             f.write(str(seed) + "\n")
-            while True:
-                for _ in range(100):
+            total_reward = 0
+            for iteration in range(FLAGS.num_steps):
+                for _ in range(500):
                     mc_iterate(agent, root, exploration)
                 i = 0
                 while root.confidence < 0.2 and i < 5:
                     i += 1
                     print("Gaining more confidence... {} %".format(100 * root.confidence))
-                    for _ in range(30):
+                    for _ in range(100):
                         mc_iterate(agent, root, exploration)
                 root.render()
                 action = root.choose(0).action
                 f.write(str(action) + "\n")
                 _, reward, done, _ = env.step(action)
-                print("Reward =", reward)
+                total_reward += reward
+                vh_log({
+                    "reward": reward,
+                    "total_reward": total_reward,
+                    "average_reward": total_reward / (iteration + 1),
+                }, iteration)
                 root = Node(env.unwrapped.get_root())
                 if done:
                     break
 
 if __name__ == "__main__":
     register()
-    mcts(AgentWrapper)
-    # mcts(RandomAgent)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_steps", type=int, default=1000,
+                        help="Max Number of steps")
+    parser.add_argument("--exploration", type=float, default=200,
+                        help="Level of exploration")
+    FLAGS, unparsed = parser.parse_known_args()
+    # mcts(AgentWrapper)
+    mcts(RandomAgent)

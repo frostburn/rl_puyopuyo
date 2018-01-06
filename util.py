@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import json
+import os
 
 import numpy as np
 import tensorflow as tf
@@ -89,3 +90,10 @@ def parse_record(env, lines):
         action_one_hot = np.zeros(env.action_space.n)
         action_one_hot[action] = 1
         yield (state, action_one_hot, value)
+
+
+def get_or_create_outputs_dir():
+    outputs_dir = os.getenv("VH_OUTPUTS_DIR", "/tmp/tensorflow/gym_puyopuyo/outputs")
+    if not os.path.isdir(outputs_dir):
+        os.makedirs(outputs_dir)
+    return outputs_dir
