@@ -13,16 +13,16 @@ import tensorflow as tf
 from gym_puyopuyo.env import register
 from gym_puyopuyo.util import print_up
 
-from util import bias_variable, conv2d, summarize_scalar, variable_summaries, vh_log, weight_variable, parse_record
+from util import bias_variable, conv2d, summarize_scalar, variable_summaries, vh_log, weight_variable, parse_record, read_record
 
 
 FLAGS = None
 
 
 class Agent(object):
-    BATCH_SIZE = 10
-    FC_1_SIZE = 200
-    FC_2_SIZE = 200
+    BATCH_SIZE = 20
+    FC_1_SIZE = 1000
+    FC_2_SIZE = 500
 
     def __init__(self, session, env):
         self.session = session
@@ -106,7 +106,7 @@ class Agent(object):
                 regularizer = tf.contrib.layers.l2_regularizer(scale=0.0001)
                 reg_variables = tf.trainable_variables()
                 self.reg_term = tf.contrib.layers.apply_regularization(regularizer, reg_variables)
-            self.loss = self.loss_xent + self.loss_mse + self.reg_term
+            self.loss = self.loss_xent + self.loss_mse * 1e-15 + self.reg_term
 
     def make_train_graph(self):
         learning_rate = FLAGS.learning_rate if FLAGS else 0
@@ -186,19 +186,20 @@ class Agent(object):
 
 def main(*args, **kwargs):
     with tf.Session() as session:
-        env = gym.make("PuyoPuyoEndlessSmall-v0")
+        env = gym.make("PuyoPuyoEndlessTsu-v0")
         agent = Agent(session, env)
         merged = tf.summary.merge_all()
         session.run(tf.global_variables_initializer())
         if FLAGS.params_dir:
             agent.load(FLAGS.params_dir)
-        i = 0
-        while True:
-            path = "records/random"
+        iteration = 0
+        for episode in range(FLAGS.num_episodes):
+            path = "records/puyobot"
             for filename in os.listdir(path):
                 with open(os.path.join(path, filename)) as f:
-                    temp_env = gym.make("PuyoPuyoEndlessSmall-v0")
-                    g = parse_record(temp_env, f.readlines())
+                    # temp_env = gym.make("PuyoPuyoEndlessTsu-v0")
+                    # g = parse_record(temp_env, f.readlines())
+                    g = read_record(env, f.read())
                 experiences = deque(maxlen=agent.BATCH_SIZE)
                 try:
                     while True:
@@ -206,10 +207,10 @@ def main(*args, **kwargs):
                             experiences.append(next(g))
                         feed_dict = agent.get_feed_dict(experiences)
                         session.run(agent.train_step, feed_dict=feed_dict)
-                        if i % 100 == 0:
+                        if iteration % 10 == 0:
                             summary = session.run(merged, feed_dict=feed_dict)
-                            agent.writer.add_summary(summary, i)
-                        i += 1
+                            agent.writer.add_summary(summary, iteration)
+                        iteration += 1
                 except StopIteration:
                     pass
 
@@ -222,13 +223,10 @@ def main(*args, **kwargs):
                         # env.render()
                         if done:
                             break
-                print(total_reward)
-                summarize_scalar(agent.writer, "policy_reward", total_reward, i)
+                print("Total reward =", total_reward)
+                summarize_scalar(agent.writer, "policy_reward", total_reward, iteration)
             print("epoch done")
-            try:
-                pass
-            finally:
-                agent.dump()
+            agent.dump()
         agent.writer.close()
 
 
@@ -247,7 +245,7 @@ if __name__ == "__main__":
                         help="Number of episodes to run the trainer")
     parser.add_argument("--num_steps", type=int, default=1000,
                         help="Number of steps per episode")
-    parser.add_argument("--learning_rate", type=float, default=1e-4,
+    parser.add_argument("--learning_rate", type=float, default=1e-6,
                         help="Initial learning rate")
     parser.add_argument("--log_dir", type=str, default="/tmp/tensorflow/gym_puyopuyo/logs/rl_with_summaries",
                         help="Summaries log directory")

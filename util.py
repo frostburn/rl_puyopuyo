@@ -58,6 +58,28 @@ def vh_log(data, step):
     print(json.dumps(data))
 
 
+def rewards_to_values(rewards):
+    values = []
+    value = 0
+    for reward in reversed(rewards):
+        value = reward + GAMMA * value
+        values.insert(0, value)
+    return values
+
+
+def one_hot_record(env, observations, actions, rewards, done):
+    values = rewards_to_values(rewards)
+
+    result = []
+    stuff = list(zip(observations, actions, values))
+    if not done:
+        stuff = stuff[:-50]
+    for observation, action, value in stuff:
+        action_one_hot = np.zeros(env.action_space.n)
+        action_one_hot[action] = 1
+        yield (observation, action_one_hot, value)
+
+
 def parse_record(env, lines):
     """
     Parses a seed + action record into a trainable sequence
@@ -68,28 +90,29 @@ def parse_record(env, lines):
 
     env.seed(seed)
     env.reset()
-    states = []
+    observations = []
     rewards = []
     for action in actions:
         # env.render()
-        state, reward, done, _ = env.step(action)
-        states.append(state)
+        observation, reward, done, _ = env.step(action)
+        observations.append(observation)
         rewards.append(reward)
 
-    values = []
-    value = 0
-    for reward in reversed(rewards):
-        value = reward + GAMMA * value
-        values.insert(0, value)
+    for item in one_hot_record(env, observations, actions, rewards, done):
+        yield item
 
-    result = []
-    stuff = list(zip(states, actions, values))
-    if not done:
-        stuff = stuff[:-50]
-    for state, action, value in stuff:
-        action_one_hot = np.zeros(env.action_space.n)
-        action_one_hot[action] = 1
-        yield (state, action_one_hot, value)
+
+def read_record(env, file):
+    observations = []
+    rewards = []
+    actions = []
+    for observation, reward, done, info in env.read_record(file):
+        observations.append(observation)
+        rewards.append(reward)
+        actions.append(info["action"])
+
+    for item in one_hot_record(env, observations, actions, rewards, done):
+        yield item
 
 
 def get_or_create_outputs_dir():
