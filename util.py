@@ -102,14 +102,20 @@ def parse_record(env, lines):
         yield item
 
 
-def read_record(env, file):
+def read_record(env, file, expansion=0, log_reward_scale=False):
     observations = []
     rewards = []
     actions = []
     for observation, reward, done, info in env.read_record(file):
+        if log_reward_scale:
+            reward = np.log(reward + 1.5)
         observations.append(observation)
         rewards.append(reward)
         actions.append(info["action"])
+        for _ in range(expansion):
+            observations.append(env.permute_observation(observation))
+            rewards.append(reward)
+            actions.append(info["action"])
 
     for item in one_hot_record(env, observations, actions, rewards, done):
         yield item

@@ -20,9 +20,11 @@ FLAGS = None
 
 
 class Agent(object):
-    BATCH_SIZE = 20
-    FC_1_SIZE = 1000
-    FC_2_SIZE = 500
+    BATCH_SIZE = 100
+    KERNEL_SIZE = 5
+    NUM_FEATURES = 20
+    FC_1_SIZE = 500
+    FC_2_SIZE = 300
 
     def __init__(self, session, env):
         self.session = session
@@ -35,6 +37,7 @@ class Agent(object):
 
     def make_graph(self):
         self.make_input_graph()
+        self.make_convolution_graph()
         self.make_fc_1_graph()
         self.make_fc_2_graph()
         self.make_output_graph()
@@ -58,13 +61,27 @@ class Agent(object):
         self.n_deal = np.prod(deal_space.shape)
         self.n_box = np.prod(box_space.shape)
         self.n_inputs = self.n_deal + self.n_box
+        self.box_shape = box_space.shape
+
+    def make_convolution_graph(self):
+        with tf.name_scope("convolution"):
+            self.W_conv = weight_variable([self.KERNEL_SIZE, self.KERNEL_SIZE, self.box_shape[-1], self.NUM_FEATURES], name="W")
+            self.b_conv = bias_variable([self.NUM_FEATURES], name="b")
+            z = conv2d(self.box_input, self.W_conv) + self.b_conv
+            self.box_activation = tf.sigmoid(z)
+            self.n_conv = self.box_shape[0] * self.box_shape[1] * self.NUM_FEATURES
 
     def make_fc_1_graph(self):
+        n_flat = 0
         with tf.name_scope("flatten"):
-            flat_input = tf.reshape(self.box_input, [-1, self.n_box])
+            # flat_input = tf.reshape(self.box_input, [-1, self.n_box])
+            # n_flat += self.n_box
+            flat_input = tf.reshape(self.box_activation, [-1, self.n_conv])
+            n_flat += self.n_conv
             flat_input = tf.concat([flat_input, tf.reshape(self.deal_input, [-1, self.n_deal])], 1)
+            n_flat += self.n_deal
         with tf.name_scope("fully_connected_1"):
-            self.W_fc_1 = weight_variable([self.n_inputs, self.FC_1_SIZE], name="W")
+            self.W_fc_1 = weight_variable([n_flat, self.FC_1_SIZE], name="W")
             self.b_fc_1 = bias_variable([self.FC_1_SIZE], name="b")
             z = tf.matmul(flat_input, self.W_fc_1) + self.b_fc_1
             self.fc_1_activation = tf.sigmoid(z)
@@ -106,7 +123,7 @@ class Agent(object):
                 regularizer = tf.contrib.layers.l2_regularizer(scale=0.0001)
                 reg_variables = tf.trainable_variables()
                 self.reg_term = tf.contrib.layers.apply_regularization(regularizer, reg_variables)
-            self.loss = self.loss_xent + self.loss_mse * 1e-15 + self.reg_term
+            self.loss = self.loss_xent + self.loss_mse * 3e-4 + self.reg_term
 
     def make_train_graph(self):
         learning_rate = FLAGS.learning_rate if FLAGS else 0
@@ -199,7 +216,7 @@ def main(*args, **kwargs):
                 with open(os.path.join(path, filename)) as f:
                     # temp_env = gym.make("PuyoPuyoEndlessTsu-v0")
                     # g = parse_record(temp_env, f.readlines())
-                    g = read_record(env, f.read())
+                    g = read_record(env, f.read(), expansion=5, log_reward_scale=True)
                 experiences = deque(maxlen=agent.BATCH_SIZE)
                 try:
                     while True:
@@ -215,7 +232,7 @@ def main(*args, **kwargs):
                     pass
 
                 total_reward = 0
-                for k in range(10):
+                for k in range(20):
                     state = env.reset()
                     for j in range(1000):
                         state, reward, done, _ = env.step(agent.get_policy_action(env, state))
@@ -245,7 +262,7 @@ if __name__ == "__main__":
                         help="Number of episodes to run the trainer")
     parser.add_argument("--num_steps", type=int, default=1000,
                         help="Number of steps per episode")
-    parser.add_argument("--learning_rate", type=float, default=1e-6,
+    parser.add_argument("--learning_rate", type=float, default=1e-2,
                         help="Initial learning rate")
     parser.add_argument("--log_dir", type=str, default="/tmp/tensorflow/gym_puyopuyo/logs/rl_with_summaries",
                         help="Summaries log directory")
