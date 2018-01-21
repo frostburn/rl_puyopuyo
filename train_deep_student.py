@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import argparse
 from collections import defaultdict, deque
+import json
 import os
 import random
 import sys
@@ -19,19 +20,17 @@ from util import bias_variable, conv2d, summarize_scalar, variable_summaries, vh
 
 
 FLAGS = None
-
-
-class FastTreeSearchAgent(TsuTreeSearchAgent):
-    depth = 2
+HYPERPARAMS = {
+    "batch_size": 32,
+    "kernel_size": 5,
+    "num_features": 10,
+    "fc_1_size": 600,
+    "fc_2_size": 300,
+    "teacher_depth": 2,
+}
 
 
 class Agent(object):
-    BATCH_SIZE = 32
-    KERNEL_SIZE = 5
-    NUM_FEATURES = 20
-    FC_1_SIZE = 1200
-    FC_2_SIZE = 600
-
     def __init__(self, session, envs):
         self.session = session
         self.envs = envs
@@ -43,6 +42,26 @@ class Agent(object):
         if FLAGS:
             self.writer = tf.summary.FileWriter(FLAGS.log_dir)
             self.writer.add_graph(tf.get_default_graph())
+
+    @property
+    def BATCH_SIZE(self):
+        return HYPERPARAMS["batch_size"]
+
+    @property
+    def KERNEL_SIZE(self):
+        return HYPERPARAMS["kernel_size"]
+
+    @property
+    def NUM_FEATURES(self):
+        return HYPERPARAMS["num_features"]
+
+    @property
+    def FC_1_SIZE(self):
+        return HYPERPARAMS["fc_1_size"]
+
+    @property
+    def FC_2_SIZE(self):
+        return HYPERPARAMS["fc_2_size"]
 
     def make_graph(self):
         self.make_input_graph()
@@ -83,8 +102,6 @@ class Agent(object):
     def make_fc_1_graph(self):
         n_flat = 0
         with tf.name_scope("flatten"):
-            # flat_input = tf.reshape(self.box_input, [-1, self.n_box])
-            # n_flat += self.n_box
             flat_input = tf.reshape(self.box_activation, [-1, self.n_conv])
             n_flat += self.n_conv
             flat_input = tf.concat([flat_input, tf.reshape(self.deal_input, [-1, self.n_deal])], 1)
@@ -151,7 +168,8 @@ class Agent(object):
 
     def get_policy_targets(self, states=None):
         states = states or self.states
-        agent = FastTreeSearchAgent(returns_distribution=True)
+        agent = TsuTreeSearchAgent(returns_distribution=True)
+        agent.depth = HYPERPARAMS["teacher_depth"]
         return [agent.get_action(state) for state in states]
 
     def get_Q_targets(self, Q_base, actions, observations, rewards):
@@ -174,7 +192,7 @@ class Agent(object):
         for env, dist in zip(self.envs, action_dists):
             action = np.random.choice(self.n_actions, p=dist)
             observation, reward, done, info = env.step(action)
-            reward = np.log(reward + 1.5)
+            reward = np.cbrt(reward)
             if done:
                 observation = env.reset()
             actions.append(action)
@@ -242,7 +260,7 @@ class Agent(object):
 
 def main(*args, **kwargs):
     with tf.Session() as session:
-        envs = [gym.make("PuyoPuyoEndlessTsu-v2") for _ in range(Agent.BATCH_SIZE)]
+        envs = [gym.make("PuyoPuyoEndlessTsu-v2") for _ in range(HYPERPARAMS["batch_size"])]
         agent = Agent(session, envs)
         merged = tf.summary.merge_all()
         session.run(tf.global_variables_initializer())
@@ -251,17 +269,20 @@ def main(*args, **kwargs):
             agent.load(FLAGS.params_dir)
         for iteration in range(FLAGS.num_iterations):
             rewards, feed_dict = agent.step()
-            # agent.envs[0].render()
-            # print(rewards[0])
+            if not FLAGS.quiet:
+                agent.envs[0].render()
+                print(rewards[0])
             running_reward += sum(rewards)
             if iteration % 10 == 0:
                 vh_log({"reward": running_reward}, iteration)
-                summarize_scalar(agent.writer, "reward", running_reward, iteration)
+                if not FLAGS.quiet:
+                    summarize_scalar(agent.writer, "reward", running_reward, iteration)
                 running_reward = 0
-            if iteration % 100 == 0:
+            if iteration % 100 == 0 and not FLAGS.quiet:
                 summary = session.run(merged, feed_dict=feed_dict)
                 agent.writer.add_summary(summary, iteration)
                 agent.dump()
+        agent.dump()
         agent.writer.close()
 
 
@@ -270,11 +291,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_iterations', type=int, default=10000,
                         help='Number of steps to run the trainer')
-    parser.add_argument('--learning_rate', type=float, default=1e-5,
+    parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='Initial learning rate')
     parser.add_argument("--params_dir", type=str, default=None,
                         help="Parameters directory for initial values")
     parser.add_argument('--log_dir', type=str, default='/tmp/tensorflow/gym_puyopuyo/logs/rl_with_summaries',
                         help='Summaries log directory')
+    parser.add_argument('--hyperparams', type=str, default='{}',
+                        help='Hyperparameters (JSON or filename)')
+    parser.add_argument('--quiet', action='store_true')
     FLAGS, unparsed = parser.parse_known_args()
+    try:
+        hyperparams = json.loads(FLAGS.hyperparams)
+    except ValueError:
+        with open(FLAGS.hyperparams) as f:
+            hyperparams = json.load(f)
+    HYPERPARAMS.update(hyperparams)
+    print(HYPERPARAMS)
+    print("Iterations =", FLAGS.num_iterations)
+    print("Learning rate =", FLAGS.learning_rate)
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)

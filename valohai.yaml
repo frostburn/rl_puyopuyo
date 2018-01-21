@@ -19,6 +19,29 @@
         default: 200.0
 
 - step:
+    name: Train deep student
+    image: gcr.io/tensorflow/tensorflow:1.3.0-devel-gpu
+    command:
+      - pip install -r requirements.txt
+      - python train_deep_student.py --quiet {parameters}
+    parameters:
+      - name: num_steps
+        pass-as: --num_steps={v}
+        description: Maximum number of steps to run
+        type: integer
+        default: 10000
+      - name: learning_rate
+        pass-as: --learning_rate={v}
+        description: Learning rate
+        type: float
+        default: 1e-4
+      - name: hyperparams
+        pass-as: --hyperparams={v}
+        description: Hyperparameter for the network
+        type: string
+        default: "{}"
+
+- step:
     name: Worker environment check
     image: gcr.io/tensorflow/tensorflow:1.3.0-devel-gpu
     command:
