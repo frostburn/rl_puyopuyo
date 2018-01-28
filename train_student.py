@@ -19,10 +19,14 @@ from util import bias_variable, summarize_scalar, variable_summaries, vh_log, we
 FLAGS = None
 
 
+class FastTreeSearchAgent(SmallTreeSearchAgent):
+    depth = 3
+
+
 class Agent(object):
-    BATCH_SIZE = 20
-    FC_1_SIZE = 300
-    FC_2_SIZE = 200
+    BATCH_SIZE = 100
+    FC_1_SIZE = 100
+    FC_2_SIZE = 50
 
     def __init__(self, session, envs):
         self.session = session
@@ -31,7 +35,8 @@ class Agent(object):
         self.env = envs[0]
         self.make_graph()
         self.make_summaries()
-        self.writer = tf.summary.FileWriter(FLAGS.log_dir)
+        log_dir = FLAGS.log_dir if FLAGS else "/tmp"
+        self.writer = tf.summary.FileWriter(log_dir)
         self.writer.add_graph(tf.get_default_graph())
 
     def make_graph(self):
@@ -86,7 +91,7 @@ class Agent(object):
             self.W_policy = weight_variable([self.FC_2_SIZE, self.n_actions], name="W")
             self.b_policy = bias_variable([self.n_actions], name="b")
             self.policy_head = tf.matmul(self.hidden_activation, self.W_policy) + self.b_policy
-            self.policy_actions = tf.nn.softmax(logits=self.policy_head, dim=1, name="policy_actions")
+            self.policy_actions = tf.nn.softmax(logits=5 * self.policy_head, dim=1, name="policy_actions")
 
     def make_loss_graph(self):
         with tf.name_scope("loss"):
@@ -101,7 +106,8 @@ class Agent(object):
 
     def make_train_graph(self):
         with tf.name_scope("train"):
-            self.optimizer = tf.train.MomentumOptimizer(learning_rate=FLAGS.learning_rate, momentum=0.9, use_nesterov=True)
+            learning_rate = FLAGS.learning_rate if FLAGS else 0
+            self.optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate, momentum=0.9, use_nesterov=True)
             # self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
             self.train_step = self.optimizer.minimize(self.loss)
 
@@ -115,6 +121,7 @@ class Agent(object):
 
     def step(self):
         action_dists = self.session.run(self.policy_actions, feed_dict=self.get_feed_dict())
+        print(action_dists[0])
         self.observations = []
         rewards = []
         states = []
@@ -126,7 +133,7 @@ class Agent(object):
             self.observations.append(observation)
             states.append(info["state"])
             rewards.append(reward)
-        agent = SmallTreeSearchAgent(returns_distribution=True)
+        agent = FastTreeSearchAgent(returns_distribution=True)
         targets = [agent.get_action(state) for state in states]
         feed_dict = self.get_feed_dict()
         feed_dict[self.policy_target] = targets
@@ -176,7 +183,7 @@ class Agent(object):
 
 def main(*args, **kwargs):
     with tf.Session() as session:
-        envs = [gym.make("PuyoPuyoEndlessSmall-v1") for _ in range(Agent.BATCH_SIZE)]
+        envs = [gym.make("PuyoPuyoEndlessSmall-v2") for _ in range(Agent.BATCH_SIZE)]
         agent = Agent(session, envs)
         merged = tf.summary.merge_all()
         session.run(tf.global_variables_initializer())
@@ -186,10 +193,10 @@ def main(*args, **kwargs):
             rewards, feed_dict = agent.step()
             agent.envs[0].render()
             print(rewards[0], sum(rewards))
-            summary = session.run(merged, feed_dict=feed_dict)
-            agent.writer.add_summary(summary, iteration)
             summarize_scalar(agent.writer, "policy_reward", sum(rewards), iteration)
             if iteration % 100 == 0:
+                summary = session.run(merged, feed_dict=feed_dict)
+                agent.writer.add_summary(summary, iteration)
                 agent.dump()
         agent.writer.close()
 
@@ -199,7 +206,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_iterations', type=int, default=10000,
                         help='Number of steps to run the trainer')
-    parser.add_argument('--learning_rate', type=float, default=1e-2,
+    parser.add_argument('--learning_rate', type=float, default=1e-3,
                         help='Initial learning rate')
     parser.add_argument("--params_dir", type=str, default=None,
                         help="Parameters directory for initial values")

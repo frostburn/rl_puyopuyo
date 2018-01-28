@@ -22,10 +22,11 @@ from util import bias_variable, conv2d, summarize_scalar, variable_summaries, vh
 FLAGS = None
 HYPERPARAMS = {
     "batch_size": 32,
+    "augmentation": 3,
     "kernel_size": 5,
-    "num_features": 10,
-    "fc_1_size": 600,
-    "fc_2_size": 300,
+    "num_features": 2,
+    "fc_1_size": 6,
+    "fc_2_size": 3,
     "teacher_depth": 2,
 }
 
@@ -34,8 +35,8 @@ class Agent(object):
     def __init__(self, session, envs):
         self.session = session
         self.envs = envs
-        self.observations = [env.reset() for env in self.envs]
-        self.states = [env.unwrapped.get_root() for env in self.envs]
+        self.observations = [env.reset() for env in self.envs] * (1 + HYPERPARAMS["augmentation"])
+        self.states = [env.unwrapped.get_root() for env in self.envs] * (1 + HYPERPARAMS["augmentation"])
         self.env = envs[0]
         self.make_graph()
         self.make_summaries()
@@ -45,7 +46,7 @@ class Agent(object):
 
     @property
     def BATCH_SIZE(self):
-        return HYPERPARAMS["batch_size"]
+        return HYPERPARAMS["batch_size"] * (1 + HYPERPARAMS["augmentation"])
 
     @property
     def KERNEL_SIZE(self):
@@ -195,10 +196,13 @@ class Agent(object):
             reward = np.cbrt(reward)
             if done:
                 observation = env.reset()
-            actions.append(action)
-            observations.append(observation)
-            states.append(info["state"])
-            rewards.append(reward)
+            for i in range(1 + HYPERPARAMS["augmentation"]):
+                if i > 0:
+                    observation = self.env.permute_observation(observation)
+                actions.append(action)
+                observations.append(observation)
+                states.append(info["state"])
+                rewards.append(reward)
 
         feed_dict[self.policy_target] = self.get_policy_targets()
         feed_dict[self.Q_target] = self.get_Q_targets(Q_base, actions, observations, rewards)
