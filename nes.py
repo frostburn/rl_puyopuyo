@@ -7,13 +7,23 @@ Natural Evolution Strategies (NES), where the parameter distribution is a
 gaussian of fixed standard deviation.
 """
 
+import argparse
+
 # import numpy as np
 from keras_agent import *
 from util import vh_log
 
-np.random.seed(0)
+# np.random.seed(0)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('output', type=str, help='Filename for outputs')
+    parser.add_argument(
+        '--input', type=str, default=None,
+        help='A file containing initial parameters for the training',
+    )
+    args = parser.parse_args()
+
     register()
     with tf.Session() as session:
         K.set_session(session)
@@ -22,48 +32,69 @@ if __name__ == '__main__':
         writer = tf.summary.FileWriter(log_dir)
         writer.add_graph(tf.get_default_graph())
 
-        agent = get_agent(session, 8)
+        agent = get_deep_agent(session, 12)
 
         session.run(tf.global_variables_initializer())
 
-        # Initial guess from Keras
-        # w = agent.get_params()
-
+        # Initial guess by Keras
         variables = tf.trainable_variables()
         weigths = session.run(variables)
         w = []
         w_shape = []
-        for values in weigths:
+        placeholders = []
+        assigns = []
+        for values, variable in zip(weigths, variables):
+            placeholders.append(tf.placeholder(tf.float32, values.shape))
+            assigns.append(variable.assign(placeholders[-1]))
             w_shape.append(values.shape)
             w.extend(values.flatten())
         print(w_shape)
         w = np.array(w)
 
-        # the function we want to optimize
+        # The function we want to optimize
         def f(w):
-            assigns = []
-            for shape, variable in zip(w_shape, variables):
+            feed_dict = {}
+            for shape, placeholder in zip(w_shape, placeholders):
                 values = w[:np.prod(shape)].reshape(shape)
-                assigns.append(variable.assign(values))
-                # feed_dict[variable] = values
-            session.run(assigns)
+                feed_dict[placeholder] = values
+            session.run(assigns, feed_dict=feed_dict)
             agent.reset()
-            reward = agent_performance(agent, 16)
-            return reward
+            reward = agent_performance(agent, 64, np.cbrt)
+            reg_term = float(np.dot(w.T, w))
+            return reward - reg_term * 1e-3
+
+        if args.input:
+            print("loading params...")
+            w = np.loadtxt(args.input, delimiter=",")
 
         # hyperparameters
         npop = 50 # population size
-        sigma = 1e-1 # noise standard deviation
-        alpha = 1e-2 # learning rate
+        sigma = 1e-2 # noise standard deviation
+        alpha = 1e-6 # learning rate
 
+        total_diff = np.zeros_like(w)
         last_diff = np.zeros_like(w)
         jittered_total = 0
 
-        for i in range(1000):
+        i = 0
+        while i < 1:
+            i += 1
             # print current fitness of the most likely parameter setting
             if i % 10 == 0:
-                vh_log({"reward": f(w), "jittered_reward": jittered_total}, i)
+                vh_log({
+                    "reward": f(w),
+                    "jittered_reward": jittered_total,
+                    "magnitude": float(np.dot(w.T, w)),
+                    "change": float(np.dot(total_diff.T, total_diff)),
+                    "direction": float(np.dot(total_diff.T, last_diff)),
+                }, i)
+                last_diff = total_diff
+                total_diff = 0
                 jittered_total = 0
+            if i % 20 == 0 and False:
+                filename = "/tmp/nes.csv"
+                np.savetxt(filename, w, delimiter=",")
+                print("Saved parameters to", filename)
 
             # initialize memory for a population of w's, and their rewards
             N = np.random.randn(npop, len(w)) # samples from a normal distribution N(0,1)
@@ -74,19 +105,19 @@ if __name__ == '__main__':
                 jittered_total += R[j]
 
             std = np.std(R)
-            if not std.any():
-                continue
             # standardize the rewards to have a gaussian distribution
-            A = (R - np.mean(R)) / std
-            if not A.any():
-                continue
+            A = (R - np.mean(R)) / (std + 1e-10 * (std == 0))
             # perform the parameter update. The matrix multiply below
             # is just an efficient way to sum up all the rows of the noise matrix N,
             # where each row N[j] is weighted by A[j]
-            diff = alpha/(npop*sigma) * np.dot(N.T, A)
-            w = w + diff
+            diff = alpha / (npop * sigma) * np.dot(N.T, A)
+            w += diff
 
-            vh_log({"magnitude": np.dot(w.T, w), "change": np.dot(diff.T, diff), "direction": np.dot(diff.T, last_diff)}, i)
-            last_diff = diff
+            # agent.env.render()
+
+            total_diff += diff
 
         writer.close()
+
+        np.savetxt(args.output, w, delimiter=",")
+        print("Saved parameters to", args.output)

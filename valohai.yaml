@@ -42,6 +42,16 @@
         default: "{}"
 
 - step:
+    name: Train Natural Evolution Strategies
+    image: gcr.io/tensorflow/tensorflow:1.3.0-devel-gpu
+    command:
+      - pip install -r requirements.txt
+      - export KERAS_BACKEND=tensorflow
+      - python nes.py $VH_OUTPUTS_DIR/nes.csv --input=$VH_INPUTS_DIR/Default/nes.csv {parameters}
+    inputs:
+      - name: Default
+
+- step:
     name: Worker environment check
     image: gcr.io/tensorflow/tensorflow:1.3.0-devel-gpu
     command:
