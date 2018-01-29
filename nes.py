@@ -77,7 +77,7 @@ if __name__ == '__main__':
         jittered_total = 0
 
         i = 0
-        while i < 1:
+        while i < 1000:
             i += 1
             # print current fitness of the most likely parameter setting
             if i % 10 == 0:
