@@ -1,4 +1,5 @@
 numpy
 tensorflow
+keras
 gym
 -e git+https://github.com/frostburn/gym_puyopuyo.git@v0.3.0#egg=gym_puyopuyo
