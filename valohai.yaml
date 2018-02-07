@@ -47,9 +47,7 @@
     command:
       - pip install -r requirements.txt
       - export KERAS_BACKEND=tensorflow
-      - python nes.py $VH_OUTPUTS_DIR/nes.csv --input=$VH_INPUTS_DIR/weights/nes.csv {parameters}
-    inputs:
-      - name: weights
+      - python nes.py $VH_OUTPUTS_DIR/nes.csv
 
 - step:
     name: Worker environment check

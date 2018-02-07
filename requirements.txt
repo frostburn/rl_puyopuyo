@@ -1,5 +1,5 @@
 numpy
 tensorflow
 keras
+-e git+https://github.com/frostburn/gym_puyopuyo.git@vad40c146730527b3553ca2be7e6c8513c60eee7b#egg=gym_puyopuyo
 gym
--e git+https://github.com/frostburn/gym_puyopuyo.git@v0.3.0#egg=gym_puyopuyo
