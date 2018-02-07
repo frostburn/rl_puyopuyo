@@ -16,7 +16,7 @@ from util import vh_log
 # np.random.seed(0)
 
 N_ENVS = 8
-EPISODE_LENGTH = 20
+EPISODE_LENGTH = 128
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -35,7 +35,7 @@ if __name__ == '__main__':
         writer = tf.summary.FileWriter(log_dir)
         writer.add_graph(tf.get_default_graph())
 
-        agent = get_simple_agent(session, N_ENVS)
+        agent = get_deep_agent(session, N_ENVS)
 
         session.run(tf.global_variables_initializer())
 
@@ -64,14 +64,14 @@ if __name__ == '__main__':
             agent.reset()
             reward = agent_performance(agent, EPISODE_LENGTH)
             reg_term = float(np.dot(w.T, w))
-            return reward - reg_term * 1e-3
+            return reward - reg_term * 1e-4
 
         if args.input:
             print("loading params...")
             w = np.loadtxt(args.input, delimiter=",")
 
         # hyperparameters
-        npop = 64 # population size
+        npop = 32 # population size
         sigma = 1e-3 # noise standard deviation
         alpha = 1e-8 # learning rate
 
@@ -80,7 +80,7 @@ if __name__ == '__main__':
         jittered_total = 0
 
         i = 0
-        while i < 1000 or True:
+        while i < 100:
             i += 1
             # print current fitness of the most likely parameter setting
             if i % 10 == 0:
@@ -94,7 +94,7 @@ if __name__ == '__main__':
                 last_diff = total_diff
                 total_diff = 0
                 jittered_total = 0
-            if i % 20 == 0 and True:
+            if i % 20 == 0 and False:
                 filename = "/tmp/nes.csv"
                 np.savetxt(filename, w, delimiter=",")
                 print("Saved parameters to", filename)

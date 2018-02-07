@@ -3,7 +3,8 @@ import keras.layers as kl
 from keras import backend as K
 import numpy as np
 import gym
-from gym_puyopuyo.env import register
+from gym_puyopuyo.env import register, ENV_PARAMS
+from gym_puyopuyo.env.versus import PuyoPuyoVersusEnv
 
 FLAGS = None
 
@@ -82,17 +83,23 @@ class BaseAgent(object):
 
 class SimpleAgent(BaseAgent):
     def make_hidden_graph(self):
+        self.conv_layers_me = []
+        with tf.name_scope("me"):
+            self.conv_layers_me.append(kl.Conv2D(8, (3, 3), activation='relu', padding='valid')(self.box_inputs[0]))
+        self.conv_layers_you = []
+        with tf.name_scope("you"):
+            self.conv_layers_you.append(kl.Conv2D(8, (3, 3), activation='relu', padding='valid')(self.box_inputs[1]))
         with tf.name_scope("flatten"):
             self.flat_input = kl.concatenate([
-                kl.Flatten()(self.box_inputs[0]),
-                kl.Flatten()(self.box_inputs[1]),
+                kl.Flatten()(self.conv_layers_me[-1]),
+                kl.Flatten()(self.conv_layers_you[-1]),
                 self.other_inputs
                 ], axis=-1
             )
 
         self.dense_layers = []
         self.dense_layers.append(kl.Dense(16, activation='relu')(self.flat_input))
-        self.dense_layers.append(kl.Dense(16, activation='relu')(self.dense_layers[-1]))
+        # self.dense_layers.append(kl.Dense(16, activation='relu')(self.dense_layers[-1]))
 
     def make_output_graph(self):
         self.n_actions = self.env.action_space.n
@@ -100,27 +107,36 @@ class SimpleAgent(BaseAgent):
         self.policy_actions = kl.Activation('softmax')(self.policy_head)
 
 
-# class DeepAgent(BaseAgent):
-#     def make_hidden_graph(self):
-#         self.conv_layers = []
-#         self.conv_layers.append(kl.Conv2D(8, (3, 3), activation='relu', padding='same')(self.box_input))
-#         self.conv_layers.append(kl.Conv2D(8, (3, 3), activation='relu')(self.conv_layers[-1]))
+class DeepAgent(BaseAgent):
+    def make_hidden_graph(self):
+        convolvers = [
+            kl.Conv2D(16, (3, 3), activation='relu', padding='valid'),
+            kl.Conv2D(16, (3, 3), activation='relu', padding='valid'),
+        ]
+        self.conv_layers_me = []
+        with tf.name_scope("me"):
+            self.conv_layers_me.append(convolvers[0](self.box_inputs[0]))
+            self.conv_layers_me.append(convolvers[1](self.conv_layers_me[-1]))
+        self.conv_layers_you = []
+        with tf.name_scope("you"):
+            self.conv_layers_you.append(convolvers[0](self.box_inputs[1]))
+            self.conv_layers_you.append(convolvers[1](self.conv_layers_you[-1]))
+        with tf.name_scope("flatten"):
+            self.flat_input = kl.concatenate([
+                kl.Flatten()(self.conv_layers_me[-1]),
+                kl.Flatten()(self.conv_layers_you[-1]),
+                self.other_inputs
+                ], axis=-1
+            )
 
-#         with tf.name_scope("flatten"):
-#             self.flat_input = kl.concatenate([
-#                 kl.Flatten()(self.conv_layers[-1]),
-#                 kl.Flatten()(self.deal_input)
-#                 ], axis=-1
-#             )
+        self.dense_layers = []
+        self.dense_layers.append(kl.Dense(64, activation='relu')(self.flat_input))
+        self.dense_layers.append(kl.Dense(32, activation='relu')(self.dense_layers[-1]))
 
-#         self.dense_layers = []
-#         self.dense_layers.append(kl.Dense(64, activation='relu')(self.flat_input))
-#         # self.dense_layers.append(kl.Dense(256, activation='relu')(self.dense_layers[-1]))
-
-#     def make_output_graph(self):
-#         self.n_actions = self.env.action_space.n
-#         self.policy_head = kl.Dense(self.n_actions)(self.dense_layers[-1])
-#         self.policy_actions = kl.Activation('softmax')(self.policy_head)
+    def make_output_graph(self):
+        self.n_actions = self.env.action_space.n
+        self.policy_head = kl.Dense(self.n_actions)(self.dense_layers[-1])
+        self.policy_actions = kl.Activation('softmax')(self.policy_head)
 
 
 def get_simple_agent(session, batch_size):
@@ -128,9 +144,13 @@ def get_simple_agent(session, batch_size):
     return SimpleAgent(session, envs)
 
 
-# def get_deep_agent(session, batch_size):
-#     envs = [gym.make("PuyoPuyoVersusTsu-v2") for _ in range(batch_size)]
-#     return DeepAgent(session, envs)
+def get_deep_agent(session, batch_size):
+    envs = []
+    for _ in range(batch_size):
+        agent = lambda game: np.random.randint(0, 22)
+        env = PuyoPuyoVersusEnv(agent, ENV_PARAMS["PuyoPuyoVersusTsu-v0"], garbage_clue_weight=1e-9)
+        envs.append(env)
+    return DeepAgent(session, envs)
 
 
 def agent_performance(agent, episode_length):
