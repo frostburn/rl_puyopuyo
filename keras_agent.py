@@ -75,8 +75,8 @@ class SimpleAgent(BaseAgent):
             )
 
         self.dense_layers = []
-        self.dense_layers.append(kl.Dense(128, activation='relu')(self.flat_input))
-        self.dense_layers.append(kl.Dense(128, activation='relu')(self.dense_layers[-1]))
+        self.dense_layers.append(kl.Dense(32, activation='relu')(self.flat_input))
+        self.dense_layers.append(kl.Dense(16, activation='relu')(self.dense_layers[-1]))
 
     def make_output_graph(self):
         self.n_actions = self.env.action_space.n

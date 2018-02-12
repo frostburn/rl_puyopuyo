@@ -10,7 +10,8 @@ gaussian of fixed standard deviation.
 import argparse
 
 # import numpy as np
-from keras_vs_agent import *
+# from keras_vs_agent import *
+from keras_agent import *
 from util import vh_log
 
 # np.random.seed(0)
@@ -60,18 +61,19 @@ if __name__ == '__main__':
             for shape, placeholder in zip(w_shape, placeholders):
                 values = w[:np.prod(shape)].reshape(shape)
                 feed_dict[placeholder] = values
+                w = w[np.prod(shape):]
             session.run(assigns, feed_dict=feed_dict)
             agent.reset()
             reward = agent_performance(agent, EPISODE_LENGTH)
             reg_term = float(np.dot(w.T, w))
-            return reward - reg_term * 1e-4
+            return reward - reg_term * 1e-5
 
         if args.input:
             print("loading params...")
             w = np.loadtxt(args.input, delimiter=",")
 
         # hyperparameters
-        npop = 32 # population size
+        npop = 64 # population size
         sigma = 1e-3 # noise standard deviation
         alpha = 1e-8 # learning rate
 
